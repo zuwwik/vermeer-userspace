@@ -52,6 +52,11 @@ complete matched ADSP set after the firmware loader and before udev. Reboot
 normally to activate it. Roll back with the bundle's `rollback-runtime.py` and
 the printed backup directory. Do not unload/restart the live DSP stack.
 
+The installer writes complete Vermeer hexagonrpcd service units so both
+listeners remain running across system sleep. Systemd drop-ins cannot remove
+the packaged units' `Conflicts=suspend.target` dependency. Device dependencies
+still stop the listeners when their FastRPC device disappears.
+
 ## Modem
 
 The ModemManager 1.25.95 patch fixes primary-slot selection and a netlink

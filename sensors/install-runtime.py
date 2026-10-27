@@ -13,6 +13,21 @@ import subprocess
 import time
 
 
+def rpc_service(target, domain):
+    """Use a full unit: systemd drop-ins cannot remove Conflicts/Before."""
+    device = "dev-fastrpc\\x2dadsp.device"
+    extra = " -s" if domain == "sensorspd" else ""
+    after = " hexagonrpcd-adsp-rootpd.service" if domain == "sensorspd" else ""
+    return ("[Unit]\nDescription=Vermeer ADSP FastRPC " + domain + "\n"
+            "ConditionPathExists=/dev/fastrpc-adsp\n"
+            "After=msm-firmware-loader.service " + device + after + "\n"
+            "BindsTo=" + device + "\n\n[Service]\nUser=fastrpc\nGroup=fastrpc\n"
+            "Environment=LD_LIBRARY_PATH=" + str(target / "lib") + "\n"
+            "ExecStart=" + str(target / "bin/hexagonrpcd") +
+            " -f /dev/fastrpc-adsp -d adsp" + extra + " -R " + str(target / "profile") +
+            "\nRestart=no\n")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("bundle", type=Path)
@@ -96,15 +111,11 @@ def main():
     write_config("/etc/systemd/system/msm-firmware-loader.service.d/vermeer-adsp.conf",
                  "[Service]\nExecStartPost=-/usr/local/libexec/vermeer-adsp-firmware --source "
                  + str(target / "firmware") + "\n")
-    device = "dev-fastrpc\\x2dadsp.device"
-    for domain, extra in (("rootpd", ""), ("sensorspd", " -s")):
+    for domain in ("rootpd", "sensorspd"):
+        write_config("/etc/systemd/system/hexagonrpcd-adsp-" + domain + ".service",
+                     rpc_service(target, domain))
         write_config("/etc/systemd/system/hexagonrpcd-adsp-" + domain + ".service.d/vermeer.conf",
-                     "[Unit]\nConflicts=\nBefore=\nAfter=msm-firmware-loader.service " + device +
-                     (" hexagonrpcd-adsp-rootpd.service" if domain == "sensorspd" else "") +
-                     "\nBindsTo=" + device + "\n\n[Service]\nEnvironment=LD_LIBRARY_PATH="
-                     + str(target / "lib") + "\nExecStart=\nExecStart=" + str(target / "bin/hexagonrpcd")
-                     + " -f /dev/fastrpc-adsp -d adsp" + extra + " -R " + str(profile) +
-                     "\nRestart=no\n")
+                     "# Configured in the full Vermeer service unit.\n")
         # Device events start these units; avoid racing a boot-time ConditionPathExists.
         link = Path("/etc/systemd/system/multi-user.target.wants/hexagonrpcd-adsp-" + domain + ".service")
         if link.is_symlink():
