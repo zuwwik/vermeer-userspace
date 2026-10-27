@@ -1,0 +1,43 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+# The retained boot images have no initramfs to configure a USB console.
+set -eu
+
+base=/sys/kernel/config/usb_gadget
+test -d "$base"
+for bound in "$base"/*/UDC; do
+	if [ -f "$bound" ] && [ -n "$(cat "$bound")" ]; then
+		exit 0
+	fi
+done
+
+udc=
+tries=0
+while [ "$tries" -lt 20 ]; do
+	for controller in /sys/class/udc/*; do
+		if [ -e "$controller" ]; then
+			udc=${controller##*/}
+			break
+		fi
+	done
+	[ -n "$udc" ] && break
+	tries=$((tries + 1))
+	sleep 1
+done
+[ -n "$udc" ] || { echo 'No USB device controller appeared' >&2; exit 1; }
+
+gadget=$base/vermeer-serial
+mkdir -p "$gadget"
+printf '%s' 0x1d6b > "$gadget/idVendor"
+printf '%s' 0x0104 > "$gadget/idProduct"
+mkdir -p "$gadget/strings/0x409" "$gadget/configs/c.1/strings/0x409"
+serial=$(cat /etc/machine-id)
+printf '%s' "${serial:-vermeer}" > "$gadget/strings/0x409/serialnumber"
+printf '%s' Linux > "$gadget/strings/0x409/manufacturer"
+printf '%s' 'USB Serial Gadget' > "$gadget/strings/0x409/product"
+printf '%s' 'Serial console' > "$gadget/configs/c.1/strings/0x409/configuration"
+printf '%s' 250 > "$gadget/configs/c.1/MaxPower"
+mkdir -p "$gadget/functions/acm.usb0"
+[ -L "$gadget/configs/c.1/acm.usb0" ] ||
+	ln -s "$gadget/functions/acm.usb0" "$gadget/configs/c.1/acm.usb0"
+printf '%s' "$udc" > "$gadget/UDC"

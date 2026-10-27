@@ -1,0 +1,14 @@
+[Unit]
+Description=Vermeer USB serial console
+Requires=sys-kernel-config.mount
+After=sys-kernel-config.mount systemd-udev-trigger.service
+Before=serial-getty@ttyGS0.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/vermeer-usb-serial
+RemainAfterExit=yes
+TimeoutStartSec=30
+
+[Install]
+WantedBy=multi-user.target
