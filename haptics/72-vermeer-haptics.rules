@@ -1,0 +1,2 @@
+# PM8550B force feedback; grant access to the active desktop session.
+ACTION!="remove", SUBSYSTEM=="input", KERNEL=="event*", ATTRS{name}=="qcom-pm8550b-haptics", ENV{ID_INPUT}="1", ENV{FEEDBACKD_TYPE}="vibra", TAG+="uaccess", SYMLINK+="input/vermeer-haptics"
