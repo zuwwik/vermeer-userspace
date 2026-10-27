@@ -1,0 +1,314 @@
+diff --git a/src/drv-ssc-accel.c b/src/drv-ssc-accel.c
+index 4130657..52a7d83 100644
+--- a/src/drv-ssc-accel.c
++++ b/src/drv-ssc-accel.c
+@@ -83,10 +83,14 @@ ssc_accelerometer_open (GUdevDevice *device)
+ 
+ 	drv_data = (DrvData *) sensor_device->priv;
+ 	drv_data->sensor = ssc_sensor_accelerometer_new_sync (NULL, &error);
+-	if (!drv_data->sensor)
+-		g_warning ("Creating SSC accelerometer sensor failed: %s", error->message);
+-	else
+-		g_object_get (drv_data->sensor,
++	if (!drv_data->sensor) {
++		g_warning ("Creating SSC accelerometer sensor failed: %s",
++			   error ? error->message : "No error details from SSC");
++		g_free (drv_data);
++		g_free (sensor_device);
++		return NULL;
++	}
++	g_object_get (drv_data->sensor,
+ 		              SSC_SENSOR_NAME, &sensor_device->name,
+ 		              NULL);
+ 
+@@ -114,7 +118,9 @@ ssc_accelerometer_set_polling (SensorDevice *sensor_device, gboolean state)
+ 							     sensor_device);
+ 		/* Enable sensor */
+ 		if (!ssc_sensor_accelerometer_open_sync (drv_data->sensor, NULL, &error)) {
+-			g_warning ("Opening SSC accelerometer sensor failed: %s", error->message);
++			g_clear_signal_handler (&drv_data->measurement_id, drv_data->sensor);
++			g_warning ("Opening SSC accelerometer sensor failed: %s",
++			   error ? error->message : "No error details from SSC");
+ 			return;
+ 		}
+ 	} else {
+@@ -126,7 +132,8 @@ ssc_accelerometer_set_polling (SensorDevice *sensor_device, gboolean state)
+ 
+ 		/* Disable sensor */
+ 		if (!ssc_sensor_accelerometer_close_sync (drv_data->sensor, NULL, &error))
+-			g_warning ("Closing SSC accelerometer sensor failed: %s", error->message);
++			g_warning ("Closing SSC accelerometer sensor failed: %s",
++			   error ? error->message : "No error details from SSC");
+ 	}
+ }
+ 
+@@ -136,6 +143,7 @@ ssc_accelerometer_close (SensorDevice *sensor_device)
+ 	g_autoptr(GError) error = NULL;
+ 	DrvData *drv_data = (DrvData *) sensor_device->priv;
+ 
++	g_clear_signal_handler (&drv_data->measurement_id, drv_data->sensor);
+ 	g_clear_object (&drv_data->sensor);
+ 	g_clear_pointer (&drv_data->mount_matrix, g_free);
+ 	g_clear_pointer (&sensor_device->priv, g_free);
+diff --git a/src/drv-ssc-compass.c b/src/drv-ssc-compass.c
+index 3b1a5c1..f5acccc 100644
+--- a/src/drv-ssc-compass.c
++++ b/src/drv-ssc-compass.c
+@@ -67,13 +67,16 @@ ssc_compass_open (GUdevDevice *device)
+ 
+ 	drv_data = (DrvData *) sensor_device->priv;
+ 	drv_data->sensor = ssc_sensor_compass_new_sync (NULL, &error);
+-	if (!drv_data->sensor)
+-		g_warning ("Creating SSC compass sensor failed: %s", error->message);
+-	else {
+-	  g_object_get (drv_data->sensor,
++	if (!drv_data->sensor) {
++		g_warning ("Creating SSC compass sensor failed: %s",
++			   error ? error->message : "No error details from SSC");
++		g_free (drv_data);
++		g_free (sensor_device);
++		return NULL;
++	}
++	g_object_get (drv_data->sensor,
+ 			SSC_SENSOR_NAME, &sensor_device->name,
+ 			NULL);
+-	}
+ 
+ 	return sensor_device;
+ }
+@@ -94,8 +97,11 @@ ssc_compass_set_polling (SensorDevice *sensor_device, gboolean state)
+ 							     sensor_device);
+ 
+ 		/* Enable sensor */
+-		if (!ssc_sensor_compass_open_sync (drv_data->sensor, NULL, &error))
+-			g_warning ("Opening SSC compass sensor failed: %s", error->message);
++		if (!ssc_sensor_compass_open_sync (drv_data->sensor, NULL, &error)) {
++			g_warning ("Opening SSC compass sensor failed: %s",
++			   error ? error->message : "No error details from SSC");
++			g_clear_signal_handler (&drv_data->measurement_id, drv_data->sensor);
++		}
+ 	} else {
+ 		if (!drv_data->measurement_id)
+ 			return;
+@@ -105,7 +111,8 @@ ssc_compass_set_polling (SensorDevice *sensor_device, gboolean state)
+ 
+ 		/* Disable sensor */
+ 		if (!ssc_sensor_compass_close_sync (drv_data->sensor, NULL, &error))
+-			g_warning ("Closing SSC compass sensor failed: %s", error->message);
++			g_warning ("Closing SSC compass sensor failed: %s",
++			   error ? error->message : "No error details from SSC");
+ 	}
+ }
+ 
+@@ -114,6 +121,7 @@ ssc_compass_close (SensorDevice *sensor_device)
+ {
+ 	DrvData *drv_data = (DrvData *) sensor_device->priv;
+ 
++	g_clear_signal_handler (&drv_data->measurement_id, drv_data->sensor);
+ 	g_clear_object (&drv_data->sensor);
+ 	g_clear_pointer (&sensor_device->name, g_free);
+ 	g_clear_pointer (&sensor_device->priv, g_free);
+diff --git a/src/drv-ssc-light.c b/src/drv-ssc-light.c
+index 27c819f..d1b88fe 100644
+--- a/src/drv-ssc-light.c
++++ b/src/drv-ssc-light.c
+@@ -23,6 +23,39 @@ typedef struct DrvData {
+ 	gulong measurement_id;
+ } DrvData;
+ 
++typedef struct {
++	SSCSensorLight *sensor;
++	GError *error;
++	gboolean done;
++} LightInit;
++
++static void
++light_init_ready (GObject *source, GAsyncResult *result, gpointer user_data)
++{
++	LightInit *init = user_data;
++	init->sensor = SSC_SENSOR_LIGHT (g_async_initable_new_finish (G_ASYNC_INITABLE (source), result, &init->error));
++	init->done = TRUE;
++}
++
++static SSCSensorLight *
++light_new_for_device (GUdevDevice *device, GError **error)
++{
++	const char *data_type = g_udev_device_get_property (device, "SSC_LIGHT_SENSOR_TYPE");
++	LightInit init = { 0 };
++
++	if (!data_type)
++		return ssc_sensor_light_new_sync (NULL, error);
++
++	/* Select a board's native rear ALS without reinterpreting raw front data. */
++	g_async_initable_new_async (SSC_TYPE_SENSOR_LIGHT, G_PRIORITY_DEFAULT, NULL,
++	                           light_init_ready, &init, SSC_SENSOR_DATA_TYPE, data_type, NULL);
++	while (!init.done)
++		g_main_context_iteration (NULL, TRUE);
++	if (init.error)
++		g_propagate_error (error, init.error);
++	return init.sensor;
++}
++
+ static gboolean
+ ssc_light_discover (GUdevDevice *device)
+ {
+@@ -33,7 +66,7 @@ ssc_light_discover (GUdevDevice *device)
+ 		return FALSE;
+ 
+ 	/* Open and close SSC light sensor for discovering */
+-	sensor = ssc_sensor_light_new_sync (NULL, NULL);
++	sensor = light_new_for_device (device, NULL);
+ 	if (!sensor)
+ 		return FALSE;
+ 
+@@ -66,11 +99,15 @@ ssc_light_open (GUdevDevice *device)
+ 	sensor_device->priv = g_new0 (DrvData, 1);
+ 
+ 	drv_data = (DrvData *) sensor_device->priv;
+-	drv_data->sensor = ssc_sensor_light_new_sync (NULL, &error);
+-	if (!drv_data->sensor)
+-		g_warning ("Creating SSC light sensor failed: %s", error->message);
+-	else
+-		g_object_get (drv_data->sensor,
++	drv_data->sensor = light_new_for_device (device, &error);
++	if (!drv_data->sensor) {
++		g_warning ("Creating SSC light sensor failed: %s",
++			   error ? error->message : "No error details from SSC");
++		g_free (drv_data);
++		g_free (sensor_device);
++		return NULL;
++	}
++	g_object_get (drv_data->sensor,
+ 		              SSC_SENSOR_NAME, &sensor_device->name,
+ 		              NULL);
+ 
+@@ -91,8 +128,11 @@ ssc_light_set_polling (SensorDevice *sensor_device, gboolean state)
+ 							     G_CALLBACK (measurement_cb),
+ 							     sensor_device);
+ 		/* Enable sensor */
+-		if (!ssc_sensor_light_open_sync (drv_data->sensor, NULL, &error))
+-			g_warning ("Opening SSC light sensor failed: %s", error->message);
++		if (!ssc_sensor_light_open_sync (drv_data->sensor, NULL, &error)) {
++			g_warning ("Opening SSC light sensor failed: %s",
++			   error ? error->message : "No error details from SSC");
++			g_clear_signal_handler (&drv_data->measurement_id, drv_data->sensor);
++		}
+ 	} else {
+ 		if (!drv_data->measurement_id)
+ 			return;
+@@ -102,7 +142,8 @@ ssc_light_set_polling (SensorDevice *sensor_device, gboolean state)
+ 
+ 		/* Disable sensor */
+ 		if (!ssc_sensor_light_close_sync (drv_data->sensor, NULL, &error))
+-			g_warning ("Closing SSC light sensor failed: %s", error->message);
++			g_warning ("Closing SSC light sensor failed: %s",
++			   error ? error->message : "No error details from SSC");
+ 	}
+ }
+ 
+@@ -112,6 +153,7 @@ ssc_light_close (SensorDevice *sensor_device)
+ 	g_autoptr(GError) error = NULL;
+ 	DrvData *drv_data = (DrvData *) sensor_device->priv;
+ 
++	g_clear_signal_handler (&drv_data->measurement_id, drv_data->sensor);
+ 	g_clear_object (&drv_data->sensor);
+ 	g_clear_pointer (&sensor_device->priv, g_free);
+ 	g_free (sensor_device);
+diff --git a/src/drv-ssc-proximity.c b/src/drv-ssc-proximity.c
+index fbb4482..8a02f8a 100644
+--- a/src/drv-ssc-proximity.c
++++ b/src/drv-ssc-proximity.c
+@@ -69,10 +69,14 @@ ssc_proximity_open (GUdevDevice *device)
+ 	sensor_device->priv = g_new0 (DrvData, 1);
+ 	drv_data = (DrvData *) sensor_device->priv;
+ 	drv_data->sensor = ssc_sensor_proximity_new_sync (NULL, &error);
+-	if (!drv_data->sensor)
+-		g_warning ("Creating SSC proximity sensor failed: %s", error->message);
+-	else
+-		g_object_get (drv_data->sensor,
++	if (!drv_data->sensor) {
++		g_warning ("Creating SSC proximity sensor failed: %s",
++			   error ? error->message : "No error details from SSC");
++		g_free (drv_data);
++		g_free (sensor_device);
++		return NULL;
++	}
++	g_object_get (drv_data->sensor,
+ 		              SSC_SENSOR_NAME, &sensor_device->name,
+ 		              NULL);
+ 
+@@ -95,6 +99,7 @@ ssc_proximity_set_polling (SensorDevice *sensor_device, gboolean state)
+ 
+ 		/* Enable sensor */
+ 		if (!ssc_sensor_proximity_open_sync (drv_data->sensor, NULL, &error)) {
++			g_clear_signal_handler (&drv_data->measurement_id, drv_data->sensor);
+ 			g_warning ("Opening SSC proximity sensor failed: %s", error ? error->message : "UNKNOWN");
+ 			return;
+ 		}
+@@ -105,7 +110,8 @@ ssc_proximity_set_polling (SensorDevice *sensor_device, gboolean state)
+ 		g_clear_signal_handler (&drv_data->measurement_id, drv_data->sensor);
+ 		/* Disable sensor */
+ 		if (!ssc_sensor_proximity_close_sync (drv_data->sensor, NULL, &error))
+-			g_warning ("Closing SSC proximity sensor failed: %s", error->message);
++			g_warning ("Closing SSC proximity sensor failed: %s",
++			   error ? error->message : "No error details from SSC");
+ 	}
+ }
+ 
+@@ -114,6 +120,7 @@ ssc_proximity_close (SensorDevice *sensor_device)
+ {
+ 	DrvData *drv_data = (DrvData *) sensor_device->priv;
+ 
++	g_clear_signal_handler (&drv_data->measurement_id, drv_data->sensor);
+ 	g_clear_object (&drv_data->sensor);
+ 	g_clear_pointer (&sensor_device->priv, g_free);
+ 	g_free (sensor_device);
+diff --git a/src/iio-sensor-proxy.c b/src/iio-sensor-proxy.c
+index 9c7e8cd..8698747 100644
+--- a/src/iio-sensor-proxy.c
++++ b/src/iio-sensor-proxy.c
+@@ -522,7 +522,7 @@ handle_generic_method_call (SensorData            *data,
+ 							   NULL);
+ 		g_hash_table_insert (ht, g_strdup (sender), GUINT_TO_POINTER (watch_id));
+ 
+-		if (driver_type_exists (data, driver_type)) {
++		if (driver_type_exists (data, driver_type) && DEVICE_FOR_TYPE(driver_type)) {
+ 			SensorDevice *sensor_device = DEVICE_FOR_TYPE(driver_type);
+ 
+ 			/* No other clients for this sensor? Start it */
+@@ -742,8 +742,10 @@ bus_acquired_handler (GDBusConnection *connection,
+ 	/* Initialize DBus clients hash table before DBus is fully exposed */
+ 	data->client = g_udev_client_new (subsystems);
+ 
+-	for (guint i = 0; i < NUM_SENSOR_TYPES; i++)
++	for (i = 0; i < NUM_SENSOR_TYPES; i++) {
+ 		data->clients[i] = create_clients_hash_table ();
++		data->sensor_startup_dbus_invocations_delayed[i] = g_ptr_array_new ();
++	}
+ 
+ 	data->connection = g_object_ref (connection);
+ }
+@@ -765,8 +767,6 @@ name_acquired_handler (GDBusConnection *connection,
+ 	for (i = 0; i < NUM_SENSOR_TYPES; i++) {
+ 		SensorDevice *sensor_device;
+ 
+-		data->sensor_startup_dbus_invocations_delayed[i] = g_ptr_array_new ();
+-
+ 		if (!driver_type_exists (data, i))
+ 			continue;
+ 
+@@ -779,6 +779,14 @@ name_acquired_handler (GDBusConnection *connection,
+ 		}
+ 
+ 		DEVICE_FOR_TYPE(i) = sensor_device;
++
++		/* SSC discovery/open run nested main loops. Clients can claim the
++		 * sensor before its device exists; honour those initial claims just
++		 * as the hotplug path does. */
++		if (g_hash_table_size (data->clients[i]) > 0) {
++			data->sensor_startup_dbus_event_delayed[i] = TRUE;
++			driver_set_polling (sensor_device, TRUE);
++		}
+ 	}
+ 
+ 	if (!any_sensors_left (data))
