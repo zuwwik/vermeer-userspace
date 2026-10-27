@@ -1,0 +1,63 @@
+--- a/src/mm-shared-qmi.c
++++ b/src/mm-shared-qmi.c
+@@ -3410,7 +3410,8 @@
+ 
+         /* Store active slot info */
+         slot_status = &g_array_index (physical_slots, QmiPhysicalSlotStatusSlot, i);
+-        if (slot_status->physical_slot_status == QMI_UIM_SLOT_STATE_ACTIVE) {
++        if (slot_status->physical_slot_status == QMI_UIM_SLOT_STATE_ACTIVE &&
++            slot_status->logical_slot == 1) {
+             sim_active = TRUE;
+             ctx->active_logical_id = slot_status->logical_slot;
+             ctx->active_slot_number = i + 1;
+@@ -3572,7 +3573,8 @@
+ 
+         /* We look for the currently ACTIVE SIM card only! */
+         slot_status = &g_array_index (physical_slots, QmiPhysicalSlotStatusSlot, i);
+-        if (slot_status->physical_slot_status != QMI_UIM_SLOT_STATE_ACTIVE)
++        if (slot_status->physical_slot_status != QMI_UIM_SLOT_STATE_ACTIVE ||
++            slot_status->logical_slot != 1)
+             continue;
+ 
+         active_logical_id = slot_status->logical_slot;
+@@ -3782,7 +3784,8 @@
+     sim = mm_sim_qmi_new_initialized (MM_BASE_MODEM (self),
+                                       TRUE,                              /* consider DMS UIM deprecated if we're creating SIM slots */
+                                       slot_index + 1,                    /* slot number is the array index starting at 1 */
+-                                      slot_status->physical_slot_status, /* is_active */
++                                      (slot_status->physical_slot_status == QMI_UIM_SLOT_STATE_ACTIVE &&
++                                       slot_status->logical_slot == 1), /* is_active */
+                                       iccid,
+                                       NULL,  /* imsi unknown */
+                                       NULL,  /* eid unknown */
+--- a/src/mm-netlink.c
++++ b/src/mm-netlink.c
+@@ -465,7 +465,7 @@
+ {
+     g_autoptr(GError)   error = NULL;
+     GInputVector        iv;
+-    GSocketAddress     *addr = NULL;
++    g_autoptr(GSocketAddress) addr = NULL;
+     struct sockaddr_nl  source_sockaddr;
+     gchar               buf[2048];
+     gssize              bytes_received;
+@@ -513,7 +513,7 @@
+ 
+     buffer_len = (guint) bytes_received;
+     for (hdr = (struct nlmsghdr *) buf; NLMSG_OK (hdr, buffer_len);
+-         NLMSG_NEXT (hdr, buffer_len)) {
++         hdr = NLMSG_NEXT (hdr, buffer_len)) {
+         Transaction     *tr;
+         struct nlmsgerr *err;
+         gint             nlerr = 0;
+@@ -525,7 +525,9 @@
+ 
+         switch (hdr->nlmsg_type) {
+         case NLMSG_ERROR:
+-            err = NLMSG_DATA (buf);
++            if (hdr->nlmsg_len < NLMSG_LENGTH (sizeof (*err)))
++                continue;
++            err = NLMSG_DATA (hdr);
+             nlerr = err->error;
+             break;
+         case RTM_NEWLINK:
