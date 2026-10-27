@@ -212,4 +212,3 @@ find "$BASEDIR"/target/ \
 
 # Set the new custom firmware path:
 printf "%s" "$BASEDIR/target" > /sys/module/firmware_class/parameters/path
-
