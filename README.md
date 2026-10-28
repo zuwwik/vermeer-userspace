@@ -107,3 +107,12 @@ the desktop session. No service here performs automatic flashing or rebooting.
 The intermittent ADSP charger-firmware exceptions and occasional SoundWire
 clock-stop timeouts remain under investigation; these sources do not establish
 that all system stability or GPS problems are solved.
+
+## Idle power integration
+
+The desktop torch toggle and measured current settings are in `power/`.
+For the serial-only USB gadget, install `rootfs/unudhcpd-usb0.conf` at
+`/etc/systemd/system/unudhcpd@usb0.service.d/interface.conf`, reload systemd
+and restart `unudhcpd@usb0.service`. It skips DHCP when no usb0 network
+interface exists, avoiding the previous retry/log loop. If a USB Ethernet
+interface is subsequently configured, start that DHCP service normally.
