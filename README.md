@@ -116,3 +116,14 @@ For the serial-only USB gadget, install `rootfs/unudhcpd-usb0.conf` at
 and restart `unudhcpd@usb0.service`. It skips DHCP when no usb0 network
 interface exists, avoiding the previous retry/log loop. If a USB Ethernet
 interface is subsequently configured, start that DHCP service normally.
+
+## Native Vulkan graphics
+
+On Alpine/Nura, install `mesa-vulkan-freedreno` alongside the matching Mesa
+packages to provide Turnip for Adreno 740. `vulkan-loader` alone provides no
+hardware driver. Keep the package version aligned with the installed Mesa.
+
+Verify as the desktop user with `vulkaninfo --summary` and `fastfetch`.
+Mesa 26.2.5 on Vermeer reports Turnip Adreno 740 / Vulkan 1.4; a 120-frame
+Wayland vkcube check passed. With no Vulkan driver, fastfetch may fall through
+to an unrelated Rusticl/libclc error instead of displaying the GPU.
