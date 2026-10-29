@@ -16,6 +16,9 @@ not included.
 The native stack is hexagonrpc 0.5, libssc 0.4.4 and iio-sensor-proxy 3.9.
 The patches add the required confined DSP filesystem, private writable registry,
 bounded startup retry, initial desktop sensor claims and SSC error recovery.
+Sensor polling transitions are serialized across nested GLib dispatch, including
+client disconnects and device removal during a pending SSC operation. The proxy
+also restarts on failure without restarting ADSP.
 The desktop uses the rear ALS and an accelerometer matrix of
 `-1,0,0;0,-1,0;0,0,1`. Accelerometer, gyro, compass/magnetometer, light and
 proximity work. Front under-display ALS compensation is not implemented;
@@ -24,6 +27,7 @@ Android lists no barometer or Hall sensor on this unit.
 ```sh
 python3 fetch-sources.py
 python3 build-sensors.py
+python3 sensors/test-ssc-polling.py downloads/iio-sensor-proxy/src
 ```
 
 Build natively on the aarch64 phone with Meson, Ninja, C compiler, pkg-config,

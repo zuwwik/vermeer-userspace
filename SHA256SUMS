@@ -7,4 +7,4 @@ b3e7159f41ed9328efb264630e661db6f57881713cd933fbcea84e37bfba052f  haptics/vibrat
 cc8ab1d93f5687037838f307d418f6c80521f5e0973c67632447d3f3fbf07d63  prebuilt/aarch64-linux-musl/modem/ModemManager
 91651b6ad05c9587022eeb238c0c186399ffabc32bbfda2173db5d0a2c3bd2df  prebuilt/aarch64-linux-musl/sensors/bin/hexagonrpcd
 f52127a0a3ec2c416ad0ad75468fa29cc355be9233302dad93379be0d9c794e2  prebuilt/aarch64-linux-musl/sensors/lib/libhexagonrpc.so.0.5
-11d27de366b8996bcd6a8144f36f19deeefdf37cce6bb81338c0294be2d7ca13  prebuilt/aarch64-linux-musl/sensors/libexec/iio-sensor-proxy
+06e51f4bd68f8c0250e146be28d978c4cb8ae6c68b8a658beaaa563e7055d0e2  prebuilt/aarch64-linux-musl/sensors/libexec/iio-sensor-proxy

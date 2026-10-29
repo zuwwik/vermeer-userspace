@@ -312,3 +312,85 @@ index 9c7e8cd..8698747 100644
  	}
  
  	if (!any_sensors_left (data))
+diff --git a/src/drivers.h b/src/drivers.h
+index 5e0347c..ccf152b 100644
+--- a/src/drivers.h
++++ b/src/drivers.h
+@@ -71,6 +71,13 @@ struct SensorDevice {
+ 	/* Callback function and data as pass to driver_open() */
+ 	ReadingsUpdateFunc   callback_func;
+ 	gpointer             user_data;
++
++	/* SSC synchronous calls iterate the main context. Serialize transitions
++	 * when another client claims/releases the sensor from that nested loop.
++	 */
++	gboolean             polling_busy;
++	gboolean             polling_requested;
++	gboolean             close_pending;
+ };
+ 
+ static inline gboolean
+@@ -120,6 +127,16 @@ driver_open (SensorDriver       *driver,
+ 	return sensor_device;
+ }
+ 
++static inline void
++driver_finish_close (SensorDevice *sensor_device)
++{
++	SensorDriver *driver = sensor_device->drv;
++
++	g_clear_pointer (&sensor_device->name, g_free);
++	g_return_if_fail (driver->close);
++	driver->close (sensor_device);
++}
++
+ static inline void
+ driver_set_polling (SensorDevice *sensor_device,
+ 		    gboolean      state)
+@@ -130,23 +147,38 @@ driver_set_polling (SensorDevice *sensor_device,
+ 	driver = sensor_device->drv;
+ 	g_return_if_fail (driver);
+ 
+-	if (!driver->set_polling)
++	if (!driver->set_polling) {
++		if (sensor_device->close_pending)
++			driver_finish_close (sensor_device);
+ 		return;
++	}
+ 
+-	driver->set_polling (sensor_device, state);
++	if (sensor_device->close_pending)
++		state = FALSE;
++	sensor_device->polling_requested = state;
++	if (sensor_device->polling_busy)
++		return;
++
++	sensor_device->polling_busy = TRUE;
++	do {
++		state = sensor_device->polling_requested;
++		driver->set_polling (sensor_device, state);
++	} while (state != sensor_device->polling_requested);
++	sensor_device->polling_busy = FALSE;
++
++	if (sensor_device->close_pending)
++		driver_finish_close (sensor_device);
+ }
+ 
+ static inline void
+ driver_close (SensorDevice *sensor_device)
+ {
+-	SensorDriver *driver;
+-
+ 	g_return_if_fail (sensor_device);
++	g_return_if_fail (sensor_device->drv);
++
++	/* Defer destruction if hot-unplug is dispatched inside an SSC call. */
++	sensor_device->close_pending = TRUE;
+ 	driver_set_polling (sensor_device, FALSE);
+-	g_clear_pointer (&sensor_device->name, g_free);
+-	driver = sensor_device->drv;
+-	g_return_if_fail (driver->close);
+-	driver->close (sensor_device);
+ }
+ 
+ extern SensorDriver iio_buffer_accel;

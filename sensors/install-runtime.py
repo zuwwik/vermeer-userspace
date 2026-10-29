@@ -107,6 +107,7 @@ def main():
                  "[Unit]\nWants=hexagonrpcd-adsp-rootpd.service hexagonrpcd-adsp-sensorspd.service\n"
                  "After=hexagonrpcd-adsp-sensorspd.service\n\n[Service]\n"
                  "ExecStartPre=/usr/local/libexec/vermeer-wait-ssc\nTimeoutStartSec=60\n"
+                 "Restart=on-failure\nRestartSec=2\n"
                  "ExecStart=\nExecStart=" + str(target / "libexec/iio-sensor-proxy") + "\n")
     write_config("/etc/systemd/system/msm-firmware-loader.service.d/vermeer-adsp.conf",
                  "[Service]\nExecStartPost=-/usr/local/libexec/vermeer-adsp-firmware --source "
